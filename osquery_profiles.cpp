@@ -12,6 +12,27 @@ namespace pt = boost::property_tree;
 
 
 /*
+ * This is a helper function to run a subprocess and capture the output.
+ */
+Status runCommand(const std::string& command, std::string& output) {
+  char buffer[1024] = {0};
+
+  FILE* stream = popen(command.c_str(), "r");
+  if (stream == nullptr) {
+    return Status(1);
+  }
+
+  output.clear();
+  while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
+    output.append(buffer);
+  }
+
+  pclose(stream);
+  return Status(0, "OK");
+}
+
+
+/*
  * This table plugin creates the `profiles` table, which returns all
  * configuration profiles that are currently installed on the system.
  */
@@ -88,23 +109,6 @@ class ProfilesTablePlugin : public TablePlugin {
         results.push_back(r);
       }
     }
-  }
-
-  Status runCommand(const std::string& command, std::string& output) {
-    char buffer[1024] = {0};
-
-    FILE* stream = popen(command.c_str(), "r");
-    if (stream == nullptr) {
-      return Status(1);
-    }
-
-    output.clear();
-    while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
-      output.append(buffer);
-    }
-
-    pclose(stream);
-    return Status(0, "OK");
   }
 };
 
@@ -211,23 +215,6 @@ class ProfileItemsTablePlugin : public TablePlugin {
         profiles[identifier] = profileTree;
       }
     }
-  }
-
-  Status runCommand(const std::string& command, std::string& output) {
-    char buffer[1024] = {0};
-
-    FILE* stream = popen(command.c_str(), "r");
-    if (stream == nullptr) {
-      return Status(1);
-    }
-
-    output.clear();
-    while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
-      output.append(buffer);
-    }
-
-    pclose(stream);
-    return Status(0, "OK");
   }
 };
 
