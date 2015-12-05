@@ -1,0 +1,3 @@
+*.o
+/osquery_profiles.ext
+extension.load
