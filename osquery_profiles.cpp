@@ -58,12 +58,12 @@ class ProfilesTablePlugin : public TablePlugin {
     std::string commandOutput;
 
     // Get system profiles
-    if (runCommand("profiles -C -o stdout-xml", commandOutput).ok()) {
+    if (runCommand("/usr/bin/profiles -C -o stdout-xml", commandOutput).ok()) {
       genProfilesFromOutput(commandOutput, results);
     }
 
     // Get user profiles
-    if (runCommand("profiles -L -o stdout-xml", commandOutput).ok()) {
+    if (runCommand("/usr/bin/profiles -L -o stdout-xml", commandOutput).ok()) {
       genProfilesFromOutput(commandOutput, results);
     }
 
@@ -140,12 +140,12 @@ class ProfileItemsTablePlugin : public TablePlugin {
     std::map<std::string, pt::ptree> profileMap;
 
     // Get system profiles
-    if (runCommand("profiles -C -o stdout-xml", commandOutput).ok()) {
+    if (runCommand("/usr/bin/profiles -C -o stdout-xml", commandOutput).ok()) {
       loadProfilesFromOutput(commandOutput, profileMap);
     }
 
     // Get user profiles
-    if (runCommand("profiles -L -o stdout-xml", commandOutput).ok()) {
+    if (runCommand("/usr/bin/profiles -L -o stdout-xml", commandOutput).ok()) {
       loadProfilesFromOutput(commandOutput, profileMap);
     }
 
