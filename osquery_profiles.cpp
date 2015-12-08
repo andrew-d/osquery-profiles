@@ -120,7 +120,10 @@ Status iterateProfiles(QueryContext& request, Fn callback) {
     // Get system profiles
     if (runCommand("/usr/bin/profiles -C -o stdout-xml", commandOutput).ok()) {
       // TODO: error handling
-      parseProfile(commandOutput, "", callback);
+      auto result = parseProfile(commandOutput, "", callback);
+      if (!result.ok()) {
+        return result;
+      }
     }
   } else {
     auto users = usersFromContext(request);
@@ -134,8 +137,10 @@ Status iterateProfiles(QueryContext& request, Fn callback) {
         auto command = "/usr/bin/profiles -L -o stdout-xml -U " + username;
 
         if (runCommand(command, commandOutput).ok()) {
-          // TODO: error handling
-          parseProfile(commandOutput, username, callback);
+          auto result = parseProfile(commandOutput, username, callback);
+          if (!result.ok()) {
+            return result;
+          }
         }
       }
     }
@@ -170,6 +175,7 @@ class ProfilesTablePlugin : public TablePlugin {
   QueryData generate(QueryContext& request) {
     QueryData results;
 
+    // TODO: do we want to handle error returns here?
     iterateProfiles(request, [&](const std::string& username, pt::ptree& profile) {
       Row r;
       r["username"] = username;
@@ -225,12 +231,12 @@ class ProfileItemsTablePlugin : public TablePlugin {
 
   QueryData generate(QueryContext& request) {
     QueryData results;
-    std::map<std::string, pt::ptree> profileMap;
 
     // All profiles we want to read.
     auto wantedProfiles = request.constraints["profile_identifier"].getAll(EQUALS);
 
     // For all profiles that match our constraints...
+    // TODO: do we want to handle error returns here?
     iterateProfiles(request, [&](const std::string& username, pt::ptree& profile) {
       // Get this profile's identifier.
       auto identifier = profile.get<std::string>("ProfileIdentifier", "");

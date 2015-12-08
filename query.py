@@ -24,9 +24,9 @@ if __name__ == "__main__":
     cl = osquery.ExtensionClient(path='/tmp/osquery.ext.sock')
     cl.open()
     #run_query(cl, 'SELECT * FROM profiles;')
+    #run_query(cl, 'SELECT * FROM profiles WHERE username = "adunham";')
     run_query(
         cl,
         'SELECT * FROM profile_items \
-        WHERE profile_identifier = "29998254-A289-4F30-B59C-A8CE1A9F570C" \
-        AND json_extract(content, "$.askForPasswordDelay") IS NOT NULL;'
+        WHERE profile_identifier = "29998254-A289-4F30-B59C-A8CE1A9F570C";'
     )
