@@ -4,6 +4,7 @@
 #include <sstream>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
 
@@ -33,6 +34,118 @@ Status runCommand(const std::string& command, std::string& output) {
 
 
 /*
+ * Helper function, mostly copied from osquery's source code.
+ *
+ * This function extracts a list of usernames given in the input query.
+ */
+QueryData usersFromContext(const QueryContext& context, bool all = false) {
+  QueryData users;
+
+  // If the user gave a 'username' constraint, get the user with that username
+  // (this will helpfully also not do anything if the user does not exist).
+  if (context.hasConstraint("username", EQUALS)) {
+    context.forEachConstraint(
+        "username",
+        EQUALS,
+        ([&users](const std::string& expr) {
+          auto user = SQL::selectAllFrom("users", "username", EQUALS, expr);
+          users.insert(users.end(), user.begin(), user.end());
+        }));
+  } else if (!all) {
+    // The user did not give a username, and did not want everything - return
+    // ourselves.
+    users =
+        SQL::selectAllFrom("users", "uid", EQUALS, std::to_string(getuid()));
+  } else {
+    // Return all users.
+    users = SQL::selectAllFrom("users");
+  }
+  return users;
+}
+
+
+/*
+ * This helper function will parse the output of the `profiles` command and
+ * call the given callback with each parsed result.
+ */
+template<typename Fn>
+Status parseProfile(const std::string& commandOutput, const std::string& username, Fn callback) {
+  // Handle the case where the user does not exist.
+  if (boost::starts_with(commandOutput, "profiles: the user could not be found")) {
+    return Status(1, "User not found");
+  }
+
+  // The root key of the plist is either the username, or the literal string
+  // "_computerlevel" for system-wide profiles.
+  std::string rootKey;
+  if (username.length() > 0) {
+    rootKey = username;
+  } else {
+    rootKey = "_computerlevel";
+  }
+
+  pt::ptree tree;
+  if (parsePlistContent(commandOutput, tree).ok()) {
+    pt::ptree root;
+
+    try {
+      root = tree.get_child(rootKey);
+    } catch (const pt::ptree_bad_path&) {
+      return Status(1, "No profiles");
+    }
+
+    for (const auto& it : root) {
+      auto profile = it.second;
+      callback(username, profile);
+    }
+  }
+
+  return Status(0, "OK");
+}
+
+
+/*
+ * This helper function will extract all usernames from the given context (if
+ * any), run the `profiles` tool to retrieve all profiles for those users, and
+ * then call the given callback with the resulting parsed profile data.
+ */
+template<typename Fn>
+Status iterateProfiles(QueryContext& request, Fn callback) {
+  std::string commandOutput;
+
+  // If the caller is requesting a join against the user, then we generate
+  // information from that user - otherwise, we grab the system-wide
+  // profiles.
+  if (request.constraints["username"].notExistsOrMatches("")) {
+    // Get system profiles
+    if (runCommand("/usr/bin/profiles -C -o stdout-xml", commandOutput).ok()) {
+      // TODO: error handling
+      parseProfile(commandOutput, "", callback);
+    }
+  } else {
+    auto users = usersFromContext(request);
+    for (const auto& row : users) {
+      if (row.count("username") > 0) {
+        auto username = row.at("username");
+
+        // NOTE: This is somewhat vulnerable to shell injection.  Currently,
+        // we're "safe" because the `usersFromContext` function only returns
+        // rows where the user actually exists - take care.
+        auto command = "/usr/bin/profiles -L -o stdout-xml -U " + username;
+
+        if (runCommand(command, commandOutput).ok()) {
+          // TODO: error handling
+          parseProfile(commandOutput, username, callback);
+        }
+      }
+    }
+  }
+
+  return Status(0, "OK");
+}
+
+
+/*
  * This table plugin creates the `profiles` table, which returns all
  * configuration profiles that are currently installed on the system.
  */
@@ -40,6 +153,7 @@ class ProfilesTablePlugin : public TablePlugin {
  private:
   TableColumns columns() const {
     return {
+      {"username", TEXT_TYPE},
       {"type", TEXT_TYPE},
       {"identifier", TEXT_TYPE},
       {"display_name", TEXT_TYPE},
@@ -55,60 +169,34 @@ class ProfilesTablePlugin : public TablePlugin {
 
   QueryData generate(QueryContext& request) {
     QueryData results;
-    std::string commandOutput;
 
-    // Get system profiles
-    if (runCommand("/usr/bin/profiles -C -o stdout-xml", commandOutput).ok()) {
-      genProfilesFromOutput(commandOutput, results);
-    }
+    iterateProfiles(request, [&](const std::string& username, pt::ptree& profile) {
+      Row r;
+      r["username"] = username;
+      r["identifier"] = profile.get<std::string>("ProfileIdentifier", "");
+      r["display_name"] = profile.get<std::string>("ProfileDisplayName", "");
+      r["description"] = profile.get<std::string>("ProfileDescription", "");
+      r["organization"] = profile.get<std::string>("ProfileOrganization", "");
+      r["type"] = profile.get<std::string>("ProfileType", "");
 
-    // Get user profiles
-    if (runCommand("/usr/bin/profiles -L -o stdout-xml", commandOutput).ok()) {
-      genProfilesFromOutput(commandOutput, results);
-    }
+      if (profile.get<std::string>("ProfileVerificationState", "") == "verified") {
+        r["verified"] = INTEGER(1);
+      } else {
+        r["verified"] = INTEGER(0);
+      }
+
+      // The flag is actually 'ProfileRemovalDisallowed', which is set to 'true' when the
+      // profile cannot be removed.
+      if (profile.get<std::string>("ProfileRemovalDisallowed", "") == "true") {
+        r["removal_allowed"] = INTEGER(0);
+      } else {
+        r["removal_allowed"] = INTEGER(1);
+      }
+
+      results.push_back(r);
+    });
 
     return results;
-  }
-
-  void genProfilesFromOutput(const std::string& output, QueryData& results) {
-    pt::ptree tree;
-    if (parsePlistContent(output, tree).ok()) {
-      pt::ptree root;
-
-      try {
-        // TODO: this might be the current username for per-user profiles?
-        root = tree.get_child("_computerlevel");
-      } catch (const pt::ptree_bad_path&) {
-        return;
-      }
-
-      for (const auto& it : root) {
-        auto profile = it.second;
-
-        Row r;
-        r["identifier"] = profile.get<std::string>("ProfileIdentifier", "");
-        r["display_name"] = profile.get<std::string>("ProfileDisplayName", "");
-        r["description"] = profile.get<std::string>("ProfileDescription", "");
-        r["organization"] = profile.get<std::string>("ProfileOrganization", "");
-        r["type"] = profile.get<std::string>("ProfileType", "");
-
-        if (profile.get<std::string>("ProfileVerificationState", "") == "verified") {
-          r["verified"] = INTEGER(1);
-        } else {
-          r["verified"] = INTEGER(0);
-        }
-
-        // The flag is actually 'ProfileRemovalDisallowed', which is set to 'true' when the
-        // profile cannot be removed.
-        if (profile.get<std::string>("ProfileRemovalDisallowed", "") == "true") {
-          r["removal_allowed"] = INTEGER(0);
-        } else {
-          r["removal_allowed"] = INTEGER(1);
-        }
-
-        results.push_back(r);
-      }
-    }
   }
 };
 
@@ -121,6 +209,7 @@ class ProfileItemsTablePlugin : public TablePlugin {
  private:
   TableColumns columns() const {
     return {
+      {"username", TEXT_TYPE},
       {"profile_identifier", TEXT_TYPE},
       {"type", TEXT_TYPE},
       {"identifier", TEXT_TYPE},
@@ -136,85 +225,58 @@ class ProfileItemsTablePlugin : public TablePlugin {
 
   QueryData generate(QueryContext& request) {
     QueryData results;
-    std::string commandOutput;
     std::map<std::string, pt::ptree> profileMap;
 
-    // Get system profiles
-    if (runCommand("/usr/bin/profiles -C -o stdout-xml", commandOutput).ok()) {
-      loadProfilesFromOutput(commandOutput, profileMap);
-    }
+    // All profiles we want to read.
+    auto wantedProfiles = request.constraints["profile_identifier"].getAll(EQUALS);
 
-    // Get user profiles
-    if (runCommand("/usr/bin/profiles -L -o stdout-xml", commandOutput).ok()) {
-      loadProfilesFromOutput(commandOutput, profileMap);
-    }
+    // For all profiles that match our constraints...
+    iterateProfiles(request, [&](const std::string& username, pt::ptree& profile) {
+      // Get this profile's identifier.
+      auto identifier = profile.get<std::string>("ProfileIdentifier", "");
 
-    // For each profile identifier given...
-    auto identifiers = request.constraints["profile_identifier"].getAll(EQUALS);
-    for (const auto& identifier : identifiers) {
-      // If we have this profile, we dump information about it.
-      auto search = profileMap.find(identifier);
-      if (search != profileMap.end()) {
-        auto identifier = search->first;
-
-        pt::ptree payloads;
-
-        try {
-          payloads = search->second.get_child("ProfileItems");
-        } catch (const pt::ptree_bad_path&) {
-          continue;
-        }
-
-        for (const auto& it : payloads) {
-          auto payload = it.second;
-
-          Row r;
-          r["profile_identifier"] = identifier;
-          r["type"] = payload.get<std::string>("PayloadType", "");
-          r["identifier"] = payload.get<std::string>("PayloadIdentifier", "");
-          r["display_name"] = payload.get<std::string>("PayloadDisplayName", "");
-          r["description"] = payload.get<std::string>("PayloadDescription", "");
-          r["organization"] = payload.get<std::string>("PayloadOrganization", "");
-
-          std::string content;
-          try {
-            std::ostringstream buf;
-            pt::write_json(buf, payload.get_child("PayloadContent"), false);
-            buf.flush();
-
-            content = buf.str();
-          } catch (const pt::ptree_bad_path&) {
-            // Do nothing.
-          }
-
-          boost::algorithm::trim_right(content);
-          r["content"] = content;
-          results.push_back(r);
-        }
+      // If we don't care about this profile, we just continue.
+      if (wantedProfiles.find(identifier) == wantedProfiles.end()) {
+        return;
       }
-    }
 
-    return results;
-  }
-
-  void loadProfilesFromOutput(const std::string& output, std::map<std::string, pt::ptree>& profiles) {
-    pt::ptree tree;
-    if (parsePlistContent(output, tree).ok()) {
-      pt::ptree root;
-
+      // Find all payloads in this profile, continuing if there are none.
+      pt::ptree payloads;
       try {
-        // TODO: this might be the current username for per-user profiles?
-        root = tree.get_child("_computerlevel");
+        payloads = profile.get_child("ProfileItems");
       } catch (const pt::ptree_bad_path&) {
         return;
       }
 
-      for (const auto& it : root) {
-        auto profileTree = it.second;
-        auto identifier = profileTree.get<std::string>("ProfileIdentifier", "");
-        profiles[identifier] = profileTree;
+      for (const auto& it : payloads) {
+        auto payload = it.second;
+
+        Row r;
+        r["profile_identifier"] = identifier;
+        r["type"] = payload.get<std::string>("PayloadType", "");
+        r["identifier"] = payload.get<std::string>("PayloadIdentifier", "");
+        r["display_name"] = payload.get<std::string>("PayloadDisplayName", "");
+        r["description"] = payload.get<std::string>("PayloadDescription", "");
+        r["organization"] = payload.get<std::string>("PayloadOrganization", "");
+
+        std::string content;
+        try {
+          std::ostringstream buf;
+          pt::write_json(buf, payload.get_child("PayloadContent"), false);
+          buf.flush();
+
+          content = buf.str();
+        } catch (const pt::ptree_bad_path&) {
+          // Do nothing.
+        }
+
+        boost::algorithm::trim_right(content);
+        r["content"] = content;
+        results.push_back(r);
       }
-    }
+    });
+
+    return results;
   }
 };
 
