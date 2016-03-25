@@ -296,9 +296,10 @@ int main(int argc, char* argv[]) {
   auto status = startExtension("profiles", "0.0.1");
   if (!status.ok()) {
     LOG(ERROR) << status.getMessage();
+    runner.requestShutdown(status.getCode());
   }
 
-  // Finally shutdown.
-  runner.shutdown();
+  // Finally wait for a signal / interrupt to shutdown.
+  runner.waitForShutdown();
   return 0;
 }

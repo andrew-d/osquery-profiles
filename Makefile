@@ -13,6 +13,9 @@ endif
 
 OSQUERY_BUILD := $(OSQUERY_DIR)/build/$(BUILD_DIRNAME)
 OSQUERY_BINARY := $(OSQUERY_BUILD)/osquery/osqueryd
+OSQUERY_SHELL := $(OSQUERY_BUILD)/osquery/osqueryi
+API_QUERY := "select substr(version, 0, 6) as api from osquery_info;"
+API_VERSION := $(shell $(OSQUERY_SHELL) --header=false --csv $(API_QUERY))
 
 ifeq (,$(wildcard $(OSQUERY_BUILD)))
 $(error Could not find the build directory - have you compiled osquery?)
@@ -21,7 +24,9 @@ endif
 CC := gcc
 CXX := g++
 
-CPPFLAGS := -g -I $(OSQUERY_DIR)/include/
+CPPFLAGS := \
+	-g -I $(OSQUERY_DIR)/include/ \
+	-DOSQUERY_BUILD_SDK_VERSION=$(API_VERSION)
 CFLAGS :=
 CXXFLAGS := -std=c++11
 
