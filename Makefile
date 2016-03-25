@@ -5,8 +5,7 @@ $(error OSQUERY_DIR is not set - please set it to the path to osquery)
 endif
 
 ifeq ($(DEBUG),true)
-    OSX_VERSION := $(shell sw_vers -productVersion | cut -d. -f1-2)
-    BUILD_DIRNAME := debug_darwin$(OSX_VERSION)
+    BUILD_DIRNAME := debug_darwin
 else
     BUILD_DIRNAME := darwin
 endif
@@ -43,7 +42,6 @@ LIBS := \
 FRAMEWORKS := -framework Foundation
 LDFLAGS := \
     -L $(OSQUERY_BUILD)/osquery/ \
-    -L $(OSQUERY_BUILD)/libglog-prefix/src/libglog-build/.libs/ \
     $(FRAMEWORKS) \
     $(LIBS)
 
