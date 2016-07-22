@@ -158,17 +158,17 @@ class ProfilesTablePlugin : public TablePlugin {
  private:
   TableColumns columns() const {
     return {
-      {"username", TEXT_TYPE},
-      {"type", TEXT_TYPE},
-      {"identifier", TEXT_TYPE},
-      {"display_name", TEXT_TYPE},
-      {"description", TEXT_TYPE},
-      {"organization", TEXT_TYPE},
-      {"verified", INTEGER_TYPE},
-      {"removal_allowed", INTEGER_TYPE},
+      std::make_tuple("username", TEXT_TYPE, DEFAULT),
+      std::make_tuple("type", TEXT_TYPE, DEFAULT),
+      std::make_tuple("identifier", TEXT_TYPE, DEFAULT),
+      std::make_tuple("display_name", TEXT_TYPE, DEFAULT),
+      std::make_tuple("description", TEXT_TYPE, DEFAULT),
+      std::make_tuple("organization", TEXT_TYPE, DEFAULT),
+      std::make_tuple("verified", INTEGER_TYPE, DEFAULT),
+      std::make_tuple("removal_allowed", INTEGER_TYPE, DEFAULT),
 
       // TODO: add a 'version' column with the 'ProfileVersion' key?
-      //{"version", INTEGER_TYPE},
+      //std::make_tuple("version", INTEGER_TYPE, DEFAULT),
     };
   }
 
@@ -215,17 +215,17 @@ class ProfileItemsTablePlugin : public TablePlugin {
  private:
   TableColumns columns() const {
     return {
-      {"username", TEXT_TYPE},
-      {"profile_identifier", TEXT_TYPE},
-      {"type", TEXT_TYPE},
-      {"identifier", TEXT_TYPE},
-      {"display_name", TEXT_TYPE},
-      {"description", TEXT_TYPE},
-      {"organization", TEXT_TYPE},
-      {"content", TEXT_TYPE},
+      std::make_tuple("username", TEXT_TYPE, DEFAULT),
+      std::make_tuple("profile_identifier", TEXT_TYPE, DEFAULT),
+      std::make_tuple("type", TEXT_TYPE, DEFAULT),
+      std::make_tuple("identifier", TEXT_TYPE, DEFAULT),
+      std::make_tuple("display_name", TEXT_TYPE, DEFAULT),
+      std::make_tuple("description", TEXT_TYPE, DEFAULT),
+      std::make_tuple("organization", TEXT_TYPE, DEFAULT),
+      std::make_tuple("content", TEXT_TYPE, DEFAULT),
 
       // TODO: add a 'version' column with the 'PayloadVersion' key?
-      //{"version", INTEGER_TYPE},
+      //std::make_tuple("version", INTEGER_TYPE, DEFAULT),
     };
   }
 
