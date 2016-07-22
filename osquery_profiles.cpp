@@ -1,4 +1,5 @@
 #include <osquery/sdk.h>
+#include <osquery/system.h>
 
 #include <iomanip>
 #include <sstream>
