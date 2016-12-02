@@ -159,17 +159,17 @@ class ProfilesTablePlugin : public TablePlugin {
  private:
   TableColumns columns() const {
     return {
-      std::make_tuple("username", TEXT_TYPE, DEFAULT),
-      std::make_tuple("type", TEXT_TYPE, DEFAULT),
-      std::make_tuple("identifier", TEXT_TYPE, DEFAULT),
-      std::make_tuple("display_name", TEXT_TYPE, DEFAULT),
-      std::make_tuple("description", TEXT_TYPE, DEFAULT),
-      std::make_tuple("organization", TEXT_TYPE, DEFAULT),
-      std::make_tuple("verified", INTEGER_TYPE, DEFAULT),
-      std::make_tuple("removal_allowed", INTEGER_TYPE, DEFAULT),
+      std::make_tuple("username", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("type", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("identifier", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("display_name", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("description", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("organization", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("verified", INTEGER_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("removal_allowed", INTEGER_TYPE, ColumnOptions::DEFAULT),
 
       // TODO: add a 'version' column with the 'ProfileVersion' key?
-      //std::make_tuple("version", INTEGER_TYPE, DEFAULT),
+      //std::make_tuple("version", INTEGER_TYPE, ColumnOptions::DEFAULT),
     };
   }
 
@@ -216,17 +216,17 @@ class ProfileItemsTablePlugin : public TablePlugin {
  private:
   TableColumns columns() const {
     return {
-      std::make_tuple("username", TEXT_TYPE, DEFAULT),
-      std::make_tuple("profile_identifier", TEXT_TYPE, DEFAULT),
-      std::make_tuple("type", TEXT_TYPE, DEFAULT),
-      std::make_tuple("identifier", TEXT_TYPE, DEFAULT),
-      std::make_tuple("display_name", TEXT_TYPE, DEFAULT),
-      std::make_tuple("description", TEXT_TYPE, DEFAULT),
-      std::make_tuple("organization", TEXT_TYPE, DEFAULT),
-      std::make_tuple("content", TEXT_TYPE, DEFAULT),
+      std::make_tuple("username", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("profile_identifier", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("type", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("identifier", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("display_name", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("description", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("organization", TEXT_TYPE, ColumnOptions::DEFAULT),
+      std::make_tuple("content", TEXT_TYPE, ColumnOptions::DEFAULT),
 
       // TODO: add a 'version' column with the 'PayloadVersion' key?
-      //std::make_tuple("version", INTEGER_TYPE, DEFAULT),
+      //std::make_tuple("version", INTEGER_TYPE, ColumnOptions::DEFAULT),
     };
   }
 
@@ -291,7 +291,7 @@ REGISTER_EXTERNAL(ProfilesTablePlugin, "table", "profiles");
 REGISTER_EXTERNAL(ProfileItemsTablePlugin, "table", "profile_items");
 
 int main(int argc, char* argv[]) {
-  osquery::Initializer runner(argc, argv, OSQUERY_EXTENSION);
+  osquery::Initializer runner(argc, argv, ToolType::EXTENSION);
 
   // Connect to osqueryi or osqueryd.
   auto status = startExtension("profiles", "0.0.1");
