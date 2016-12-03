@@ -1,8 +1,10 @@
 #include <osquery/sdk.h>
 #include <osquery/system.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
+#include <unistd.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -16,20 +18,67 @@ namespace pt = boost::property_tree;
 /*
  * This is a helper function to run a subprocess and capture the output.
  */
-Status runCommand(const std::string& command, std::string& output) {
-  char buffer[1024] = {0};
+Status runCommand(const std::vector<std::string>& command, std::string& output) {
+  // Make char* array for arguments.  Don't forget to NULL-terminate!
+  std::vector<char*> arguments;
+  std::transform(command.begin(), command.end(),
+                 std::back_inserter(arguments),
+                [](const std::string& one) {
+    return const_cast<char*>(one.c_str());
+  });
+  arguments.push_back(nullptr);
 
-  FILE* stream = popen(command.c_str(), "r");
-  if (stream == nullptr) {
-    return Status(1);
+  int pipefd[2];
+  pipe(pipefd);
+
+  pid_t p = fork();
+  if (p < 0) {
+    return Status(1, "fork failed");
   }
 
-  output.clear();
-  while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
-    output.append(buffer);
+  if (p == 0) {
+    // Close reading end in the child.
+    close(pipefd[0]);
+
+    // Send stdout/stderr to the pipe.
+    dup2(pipefd[1], 1);
+    dup2(pipefd[1], 2);
+
+    // This descriptor is no longer needed.
+    close(pipefd[1]);
+
+    // Run the subprocess (never returns)
+    execv(arguments[0], &arguments[0]);
+    exit(100);
   }
 
-  pclose(stream);
+  // If we reach here, we're in the parent process.
+
+  // Close the write end of the pipe.
+  close(pipefd[1]);
+
+  // Repeatedly read the child's stdout into our buffer.
+  size_t num;
+  char buffer[1024];
+  while (true) {
+    num = read(pipefd[0], buffer, sizeof(buffer));
+    if (num <= 0) {
+      break;
+    }
+
+    output.append(buffer, num);
+  }
+
+  // If we get here, presumably the read() from above returned either 0 or an error; get the exit code.
+  int status;
+  if (waitpid(p, &status, 0) == -1) {
+    return Status(1, "waitpid failed");
+  }
+
+  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    return Status(1, "subprocess errored");
+  }
+
   return Status(0, "OK");
 }
 
@@ -119,8 +168,7 @@ Status iterateProfiles(QueryContext& request, Fn callback) {
   // profiles.
   if (request.constraints["username"].notExistsOrMatches("")) {
     // Get system profiles
-    if (runCommand("/usr/bin/profiles -C -o stdout-xml", commandOutput).ok()) {
-      // TODO: error handling
+    if (runCommand({"/usr/bin/profiles", "-C", "-o", "stdout-xml"}, commandOutput).ok()) {
       auto result = parseProfile(commandOutput, "", callback);
       if (!result.ok()) {
         return result;
@@ -131,11 +179,7 @@ Status iterateProfiles(QueryContext& request, Fn callback) {
     for (const auto& row : users) {
       if (row.count("username") > 0) {
         auto username = row.at("username");
-
-        // NOTE: This is somewhat vulnerable to shell injection.  Currently,
-        // we're "safe" because the `usersFromContext` function only returns
-        // rows where the user actually exists - take care.
-        auto command = "/usr/bin/profiles -L -o stdout-xml -U " + username;
+        std::vector<std::string> command = {"/usr/bin/profiles", "-L", "-o", "stdout-xml", "-U", username};
 
         if (runCommand(command, commandOutput).ok()) {
           auto result = parseProfile(commandOutput, username, callback);
@@ -176,7 +220,8 @@ class ProfilesTablePlugin : public TablePlugin {
   QueryData generate(QueryContext& request) {
     QueryData results;
 
-    // TODO: do we want to handle error returns here?
+    // NOTE: If there's an error, we just ignore it and return the current set
+    // of results.
     iterateProfiles(request, [&](const std::string& username, pt::ptree& profile) {
       Row r;
       r["username"] = username;
@@ -237,7 +282,8 @@ class ProfileItemsTablePlugin : public TablePlugin {
     auto wantedProfiles = request.constraints["profile_identifier"].getAll(EQUALS);
 
     // For all profiles that match our constraints...
-    // TODO: do we want to handle error returns here?
+    // NOTE: If there's an error, we just ignore it and return the current set
+    // of results.
     iterateProfiles(request, [&](const std::string& username, pt::ptree& profile) {
       // Get this profile's identifier.
       auto identifier = profile.get<std::string>("ProfileIdentifier", "");
