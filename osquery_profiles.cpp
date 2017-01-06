@@ -31,7 +31,7 @@ void closeFrom(int lowfd) {
   }
 
   struct dirent *dent;
-  while ((dent = readdir(dirp.get())) != NULL) {
+  while ((dent = readdir(dirp.get())) != nullptr) {
     std::string dirname(dent->d_name);
 
     int fd;
@@ -109,7 +109,8 @@ Status runCommand(const std::vector<std::string>& command, std::string& output) 
     output.append(buffer, num);
   }
 
-  // If we get here, presumably the read() from above returned either 0 or an error; get the exit code.
+  // If we get here, presumably the read() from above returned either 0 or an
+  // error; get the exit code.
   int status;
   if (waitpid(p, &status, 0) == -1) {
     return Status(1, "waitpid failed");
