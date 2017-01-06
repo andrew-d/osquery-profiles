@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <sstream>
 #include <unistd.h>
+#include <dirent.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -13,6 +14,42 @@
 
 using namespace osquery;
 namespace pt = boost::property_tree;
+
+
+template<typename T>
+using deleted_unique_ptr = std::unique_ptr<T,std::function<void(T*)>>;
+
+
+/*
+ * This is a helper function that mimics the closefrom() function in
+ * FreeBSD/OpenBSD.
+ */
+void closeFrom(int lowfd) {
+  deleted_unique_ptr<DIR> dirp(opendir("/dev/fd"), [](DIR *d) { closedir(d); });
+  if (dirp == nullptr) {
+    return;
+  }
+
+  struct dirent *dent;
+  while ((dent = readdir(dirp.get())) != NULL) {
+    std::string dirname(dent->d_name);
+
+    int fd;
+    try {
+      fd = std::stoi(dirname);
+    } catch (const std::invalid_argument &) {
+      continue;
+    } catch (const std::out_of_range &) {
+      continue;
+    }
+
+    if (fd >= 0 && fd < INT_MAX && fd >= lowfd && fd != dirfd(dirp.get())) {
+      close(fd);
+    }
+  }
+
+  return;
+}
 
 
 /*
@@ -41,11 +78,14 @@ Status runCommand(const std::vector<std::string>& command, std::string& output) 
     close(pipefd[0]);
 
     // Send stdout/stderr to the pipe.
-    dup2(pipefd[1], 1);
-    dup2(pipefd[1], 2);
+    dup2(pipefd[1], STDOUT_FILENO);
+    dup2(pipefd[1], STDERR_FILENO);
 
     // This descriptor is no longer needed.
     close(pipefd[1]);
+
+    // Close all FDs after stderr.
+    closeFrom(STDERR_FILENO + 1);
 
     // Run the subprocess (never returns)
     execv(arguments[0], &arguments[0]);
