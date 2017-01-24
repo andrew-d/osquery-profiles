@@ -2,17 +2,21 @@
 #include <osquery/system.h>
 
 #include <algorithm>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <unistd.h>
 #include <dirent.h>
+#include <fcntl.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/filesystem.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
 
 using namespace osquery;
+namespace fs = boost::filesystem;
 namespace pt = boost::property_tree;
 
 
@@ -65,52 +69,42 @@ Status runCommand(const std::vector<std::string>& command, std::string& output) 
   });
   arguments.push_back(nullptr);
 
-  int pipefd[2];
-  pipe(pipefd);
+  // Get a temporary path.  Do all the necessary conversions here, since we
+  // don't want to allocate memory post-fork().
+  const auto tempFile = fs::temp_directory_path() / fs::unique_path();
+  const std::string tempFileStr = tempFile.native();
+  const char* tempFilePtr = tempFileStr.c_str();
+
+  VLOG(1) << "temporary file: " << tempFileStr;
 
   pid_t p = fork();
   if (p < 0) {
+    LOG(ERROR) << "fork failed: " << p;
     return Status(1, "fork failed");
   }
 
   if (p == 0) {
-    // Close reading end in the child.
-    close(pipefd[0]);
+    // Open the temporary file.
+    int fd = open(tempFilePtr, O_RDWR | O_CREAT, 0600);
 
-    // Send stdout/stderr to the pipe.
-    dup2(pipefd[1], STDOUT_FILENO);
-    dup2(pipefd[1], STDERR_FILENO);
+    // Send stdout/stderr to the file.
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
 
-    // This descriptor is no longer needed.
-    close(pipefd[1]);
+    // Don't need the original FD any more.
+    close(fd);
 
     // Close all FDs after stderr.
     closeFrom(STDERR_FILENO + 1);
 
     // Run the subprocess (never returns)
     execv(arguments[0], &arguments[0]);
-    exit(100);
+    _exit(100);
   }
 
   // If we reach here, we're in the parent process.
 
-  // Close the write end of the pipe.
-  close(pipefd[1]);
-
-  // Repeatedly read the child's stdout into our buffer.
-  size_t num;
-  char buffer[1024];
-  while (true) {
-    num = read(pipefd[0], buffer, sizeof(buffer));
-    if (num <= 0) {
-      break;
-    }
-
-    output.append(buffer, num);
-  }
-
-  // If we get here, presumably the read() from above returned either 0 or an
-  // error; get the exit code.
+  // Wait for the subprocess to exit.
   int status;
   if (waitpid(p, &status, 0) == -1) {
     return Status(1, "waitpid failed");
@@ -120,6 +114,22 @@ Status runCommand(const std::vector<std::string>& command, std::string& output) 
     return Status(1, "subprocess errored");
   }
 
+  // Read the output of the subprocess if there's no error.
+  std::ifstream ifs (tempFileStr, std::ios::in | std::ios::binary);
+  if (!ifs) {
+    return Status(1, "couldn't read temp file");
+  }
+
+  const auto sz = fs::file_size(tempFile);
+  output.clear();
+  output.reserve(sz);
+
+  while (!ifs.eof()) {
+    output += ifs.get();
+  }
+
+  // All done!
+  fs::remove(tempFile);
   return Status(0, "OK");
 }
 
